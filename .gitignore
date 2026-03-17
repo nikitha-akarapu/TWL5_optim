@@ -1,0 +1,26 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# pytest cache
+.pytest_cache/
+
+# Environments and Secrets
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDEs
+.vscode/
+.idea/
+
+# Project specific unwanted files (Test failure screenshots and generated test results)
+*.png
+*_results.xlsx
+
+# System files
+.DS_Store
+Thumbs.db
