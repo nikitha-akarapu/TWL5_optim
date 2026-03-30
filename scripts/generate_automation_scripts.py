@@ -11,7 +11,7 @@ load_dotenv()
 async def generate_playwright_script(client, test_case_row):
     prompt = f"""
 You are an expert Automation QA Engineer. 
-Below is a manual test case for an 'Employee Creation' feature on a web application (https://dev.urbuddi.com/).
+Below is a manual test case of a web application ({os.getenv('BASE_URL')}).
 Your task is to write a standalone Python Playwright test script for this specific manual test case.
 
 Test Case Details:
@@ -33,11 +33,11 @@ Output ONLY the full Python script without any markdown brackets, explanations, 
 
     try:
         response = await client.aio.models.generate_content(
-            model='gemini-2.5-flash',
+            model='llama-3.3-70b-versatile',
             contents=prompt,
         )
         
-        # Strip trailing/leading markdown if Gemini still adds them
+        # Strip trailing/leading markdown if Groq still adds them
         script_code = response.text.strip()
         if script_code.startswith("```python"):
             script_code = script_code[9:]
@@ -53,8 +53,8 @@ Output ONLY the full Python script without any markdown brackets, explanations, 
         return None
 
 async def main():
-    if not os.getenv("GEMINI_API_KEY"):
-        print("ERROR: Please set the GEMINI_API_KEY environment variable before running.")
+    if not os.getenv("GROQ_API_KEY"):
+        print("ERROR: Please set the GROQ_API_KEY environment variable before running.")
         return
 
     client = genai.Client()

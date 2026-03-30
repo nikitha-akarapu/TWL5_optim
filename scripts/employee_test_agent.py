@@ -9,6 +9,11 @@ from playwright.async_api import async_playwright
 from groq import AsyncGroq
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
+import sys
+from pathlib import Path
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from excel_handler import ExcelHandler
 
 # Load environment variables from .env file
 load_dotenv()
@@ -17,17 +22,17 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXCEL_FILE = os.path.join(BASE_DIR, "test_data", "Employee_Creation_Test_Cases.xlsx")
 TESTS_DIR = os.path.join(BASE_DIR, "tests")
 
-async def generate_test_cases(client, feature_prompt: str, dom_json_str: str, email: str, password: str):
-    print(f"Generating manual test cases for '{feature_prompt}' using Groq AI...")
+async def generate_test_cases(client, target_feature_name: str, dom_json_str: str, email: str, password: str, num_test_cases: int = 5):
+    print(f"Generating {num_test_cases} manual test cases for '{target_feature_name}' using Groq AI...")
     prompt = f"""
 You are an expert QA Engineer.
-Below is the JSON representation of the DOM for the '{feature_prompt}' form from a web application.
+Below is the JSON representation of the DOM for the '{target_feature_name}' form from a web application.
 The application credentials are Email: {email} and Password: {password}. Use these if applicable.
 Analyze the form fields, their types, required attributes, and overall structure based on the provided JSON elements.
-Generate a comprehensive list of manual test cases for the {feature_prompt} feature.
+Generate EXACTLY {num_test_cases} comprehensive manual test cases strictly focused ONLY on the '{target_feature_name}' feature. Do not generate general application test cases unless they are part of this specific feature.
 Include positive flows, negative flows (missing mandatory fields, invalid data like wrong email/phone formats, text in number fields), and edge cases.
 
-Return ONLY a valid JSON object with a single key "test_cases" which contains an array of objects.
+Return ONLY a valid JSON object with a single key "test_cases" which contains an array of exactly {num_test_cases} objects.
 Each object must have the following string properties:
 - "Test Case ID" (e.g., "TC-001")
 - "Description"
@@ -106,7 +111,7 @@ def extract_locators_from_html(html_content: str):
         if el.text and el.text.strip():
             clean_text = el.text.strip().replace('"', '\\"')
             if len(clean_text) < 30:
-                options.append(f"page.get_by_text(\"{clean_text}\")")
+                options.append(f"page.get_by_text(\"{clean_text}\", exact=True)")
                 
         # Less robust locators
         if el.get('name'):
@@ -123,11 +128,10 @@ def extract_locators_from_html(html_content: str):
             
     return "\n".join(locators) if locators else "No interactive elements found."
 
-
-async def generate_playwright_script(client, feature_prompt: str, test_case_row: dict, email: str, password: str, dom_json_str: str, locator_map: str):
+async def generate_playwright_script(client, target_feature_name: str, test_case_row: dict, email: str, password: str, feature_dom_json_str: str, feature_locator_map: str, login_dom_json_str: str, login_locator_map: str):
     prompt = f"""
 You are an expert Automation QA Engineer. 
-Below is a manual test case and the relevant JSON DOM representation for a '{feature_prompt}' feature on a web application (https://dev.urbuddi.com/).
+Below is a manual test case and the relevant JSON DOM representation for a '{target_feature_name}' feature on a web application ({os.getenv('BASE_URL')}).
 Your task is to write a standalone Python Playwright test script for this specific manual test case.
 
 Test Case Details:
@@ -137,11 +141,17 @@ Test Case Details:
 - Test Steps: {test_case_row.get('Test Steps', '')}
 - Expected Result: {test_case_row.get('Expected Result', '')}
 
-Form JSON DOM Representation:
-{dom_json_str}
+Login Page JSON DOM Representation:
+{login_dom_json_str}
 
-Extracted Available Exact Locators:
-{locator_map}
+Extracted Available Exact Locators (Login Page):
+{login_locator_map}
+
+Feature Form JSON DOM Representation:
+{feature_dom_json_str}
+
+Extracted Available Exact Locators (Feature Page):
+{feature_locator_map}
 
 Login Credentials to use in the script:
 Email: {email}
@@ -150,11 +160,11 @@ Password: {password}
 Requirements:
 1. Use Playwright's async API (`async_playwright`) and always launch the browser in headed mode: `await p.chromium.launch(headless=False)`.
 2. The code should be fully self-contained and runnable, including an `async def test_...()` or a generic `async def main()` executing the test.
-3. Automatically perform login using the credentials provided above prior to executing the test steps. 
+3. Automatically perform login using the credentials provided above prior to executing the test steps. Use the 'Login Page JSON DOM Representation' and 'Extracted Available Exact Locators (Login Page)' to correctly identify and use exact locators for the login steps.
 4. Add appropriate assertions (`assert` or `expect` from `playwright.async_api`).
 5. Include clear comments explaining the steps.
-6. CAREFULLY analyze the 'Extracted Available Exact Locators' mapping provided above. You MUST USE one of the exact locators from the 'Options' list for every interactive element required to execute the test steps. Select the most robust locator option available (favoring get_by_test_id, get_by_label, get_by_placeholder, or get_by_text).
-7. DO NOT HALLUCINATE OR GUESS LOCATORS. NEVER use a `get_by_placeholder` or `get_by_label` if the placeholder or label text does not exactly appear in the Form JSON DOM Representation or Locator map. If an element is absolutely required but not in the map, fallback to robust Playwright XPath or CSS selectors based purely on the 'Form JSON DOM Representation' provided.
+6. CAREFULLY analyze the locators mappings provided above. You MUST USE one of the exact locators from the 'Options' list for every interactive element required to execute the test steps. 
+7. DO NOT HALLUCINATE OR GUESS LOCATORS. NEVER use a locator if the text does not exactly appear in the JSON DOM Representation or Locator maps.
 
 Output ONLY the full Python script without any markdown brackets, explanations, or backticks. Start directly with imports.
 """
@@ -206,7 +216,12 @@ def execute_generated_tests(df: pd.DataFrame):
             continue
             
         test_script_path_from_root = os.path.join("tests", test_script_name)
-        print(f"Running {test_script_path_from_root} from root directory...")
+        
+        description = row.get("Description", "No description provided")
+        print(f"\n--- Running {tc_id_clean} ---")
+        print(f"Description: {description}")
+        print(f"Executing: {test_script_path_from_root}")
+        
         try:
             result = subprocess.run(
                 [sys.executable, test_script_path_from_root],
@@ -281,9 +296,11 @@ If you believe you have successfully reached the target form/page and it is visi
                     el.setAttribute('value', el.value || '');
                 }
             });
+            // Create a clone to avoid breaking the live page UI
+            const clone = document.body.cloneNode(true);
             // Remove scripts and SVGs to save tokens
-            document.querySelectorAll("script, svg, style").forEach(el => el.remove());
-            return document.body.innerHTML;
+            clone.querySelectorAll("script, svg, style").forEach(el => el.remove());
+            return clone.innerHTML;
         }''')
         
         # Limit HTML size if exceptionally large for parsing
@@ -348,9 +365,12 @@ What is your next action?
                 if locator_str and locator_str.startswith("page."):
                     target_locator = eval(locator_str)
                     if action == "click":
-                        await target_locator.first.click(timeout=5000)
+                        await target_locator.first.click(timeout=5000, force=True)
                     else:
                         await target_locator.first.fill(text, timeout=5000)
+                        # Fire a blur event to trigger Angular/React validation
+                        await target_locator.first.press('Enter')
+                        await target_locator.first.press('Tab')
                 else:
                     print(f"    -> WARNING: Invalid locator string from AI: {locator_str}")
             else:
@@ -361,6 +381,35 @@ What is your next action?
             await asyncio.sleep(2)
             
     print("Autonomous navigation complete.")
+
+async def extract_page_info(page, filename):
+    print(f"Extracting DOM for {filename}...")
+    dom_json_str = "{}"
+    test_data_dir = os.path.join(BASE_DIR, "test_data")
+    os.makedirs(test_data_dir, exist_ok=True)
+    
+    dom_export_path = os.path.join(test_data_dir, filename)
+    try:
+        index_js_path = os.path.join(BASE_DIR, "index.js")
+        with open(index_js_path, "r", encoding="utf-8") as f:
+            index_js_script = f.read()
+            
+        dom_json = await page.evaluate(f"({index_js_script})()")
+        dom_json_str = json.dumps(dom_json, indent=2)
+        
+        with open(dom_export_path, "w", encoding="utf-8") as f:
+            f.write(dom_json_str)
+        print(f"Saved exact DOM to {dom_export_path}")
+        
+        if len(dom_json_str) > 80000:
+            dom_json_str = dom_json_str[:80000] + "\n...[truncated]"
+    except Exception as e:
+        print(f"Error extracting DOM via index.js: {e}")
+        
+    html_content = await page.evaluate("() => document.body.innerHTML")
+    locator_map = extract_locators_from_html(html_content)
+    
+    return dom_json_str, locator_map
 
 async def main():
     if not os.getenv("GROQ_API_KEY"):
@@ -383,6 +432,17 @@ async def main():
     if not feature_prompt:
         print("Goal cannot be empty. Exiting.")
         return
+        
+    num_test_cases_input = input("How many manual test cases should be generated? (e.g., 5): ")
+    try:
+        num_test_cases = int(num_test_cases_input)
+    except ValueError:
+        print("Invalid number entered. Defaulting to 5 test cases.")
+        num_test_cases = 5
+
+    target_feature_name = input("Which specific feature should the test cases strictly cover? (e.g., 'Leave Application'): ")
+    if not target_feature_name:
+        target_feature_name = feature_prompt
 
     print("Launching browser for autonomous navigation...")
     async with async_playwright() as p:
@@ -391,47 +451,28 @@ async def main():
         context = await browser.new_context()
         page = await context.new_page()
 
-        target_url = "https://dev.urbuddi.com/"
+        target_url = os.getenv("TARGET_URL")
         print(f"Navigating to {target_url}...")
         await page.goto(target_url)
+
+        # Extract login page info BEFORE navigation
+        try:
+            await page.wait_for_load_state("networkidle", timeout=3000)
+        except Exception:
+            pass
+        login_dom_json_str, login_locator_map = await extract_page_info(page, "login_dom.json")
 
         # Autonomous Navigation
         await autonomous_navigate(client, page, feature_prompt, admin_email, admin_password)
 
+        # Extract feature page info AFTER navigation
         print("Extracting final page structure after navigation...")
-        print("Extracting full DOM using index.js...")
-        dom_json_str = "{}"
-        
-        # Ensure test_data directory exists
-        test_data_dir = os.path.join(BASE_DIR, "test_data")
-        os.makedirs(test_data_dir, exist_ok=True)
-        
-        dom_export_path = os.path.join(test_data_dir, "latest_dom.json")
-        try:
-            index_js_path = os.path.join(BASE_DIR, "index.js")
-            with open(index_js_path, "r", encoding="utf-8") as f:
-                index_js_script = f.read()
-                
-            dom_json = await page.evaluate(f"({index_js_script})()")
-            dom_json_str = json.dumps(dom_json, indent=2)
-            
-            with open(dom_export_path, "w", encoding="utf-8") as f:
-                f.write(dom_json_str)
-            print(f"Saved exact DOM to {dom_export_path}")
-            
-            if len(dom_json_str) > 80000:
-                dom_json_str = dom_json_str[:80000] + "\n...[truncated]"
-        except Exception as e:
-            print(f"Error extracting DOM via index.js: {e}")
-            
-        # We still need locator_map for Playwright script generation fallback!
-        html_content = await page.evaluate("() => document.body.innerHTML")
-        locator_map = extract_locators_from_html(html_content)
+        feature_dom_json_str, feature_locator_map = await extract_page_info(page, "feature_dom.json")
             
         await browser.close()
         
-    print(f"Step 1: Generating Test Cases for {feature_prompt}...")
-    test_cases_list = await generate_test_cases(client, feature_prompt, dom_json_str, admin_email, admin_password)
+    print(f"Step 1: Generating {num_test_cases} Test Cases strictly for '{target_feature_name}'...")
+    test_cases_list = await generate_test_cases(client, target_feature_name, feature_dom_json_str, admin_email, admin_password, num_test_cases)
 
     if not test_cases_list:
         print("No test cases generated. Exiting.")
@@ -443,19 +484,38 @@ async def main():
     # Create test_data directory if it doesn't exist
     os.makedirs(os.path.dirname(EXCEL_FILE), exist_ok=True)
 
-    if os.path.exists(EXCEL_FILE):
-        try:
-            existing_df = pd.read_excel(EXCEL_FILE)
-            df = pd.concat([existing_df, new_df], ignore_index=True)
-            print(f"Loaded {len(existing_df)} existing test cases.")
-        except Exception as e:
-            print(f"Warning: Could not read existing excel file {e}. Overwriting.")
-            df = new_df
-    else:
-        df = new_df
+    print("Clearing previous test cases from Excel file (Overwriting)...")
+    df = new_df
+
+    # Write foundational Excel file using ExcelHandler
+    mapped_test_cases = []
+    for tc in test_cases_list:
+        steps = tc.get("Test Steps", "")
+        steps_list = [steps] if isinstance(steps, str) else steps
+        mapped_test_cases.append({
+            "test_case_id": tc.get("Test Case ID", ""),
+            "module": target_feature_name,
+            "title": tc.get("Description", ""),
+            "type": "Automated",
+            "priority": "High",
+            "preconditions": tc.get("Pre-conditions", ""),
+            "steps": steps_list,
+            "expected_result": tc.get("Expected Result", ""),
+            "test_data": {},
+            "status": "Pending",
+            "actual_result": "",
+            "execution_time": "",
+            "error_message": "",
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
+    try:
+        ExcelHandler().create(mapped_test_cases, Path(EXCEL_FILE))
+        print(f"Excel file created at {EXCEL_FILE}")
+    except Exception as e:
+        print(f"Failed to create start Excel file: {e}")
 
     # Step 2: Generate Playwright scripts
-    print(f"Step 2: Generating Automation Scripts for {feature_prompt}...")
+    print(f"Step 2: Generating Automation Scripts for '{target_feature_name}'...")
     os.makedirs(TESTS_DIR, exist_ok=True)
     
     if "automation_status" not in df.columns:
@@ -469,7 +529,7 @@ async def main():
             
         print(f"[{index+1}/{len(df)}] Generating script for {row.get('Test Case ID', 'Unknown')}...")
         
-        script_code = await generate_playwright_script(client, feature_prompt, dict(row), admin_email, admin_password, dom_json_str, locator_map)
+        script_code = await generate_playwright_script(client, target_feature_name, dict(row), admin_email, admin_password, feature_dom_json_str, feature_locator_map, login_dom_json_str, login_locator_map)
         
         if script_code:
             safe_id = str(row.get('Test Case ID', 'Test')).replace(' ', '_').replace('-', '_')
@@ -494,19 +554,29 @@ async def main():
     
     # Step 4: Save to Excel
     print(f"Step 4: Saving updated test cases & execution results to Excel...")
+    results_map = {}
+    for index, row in df.iterrows():
+        tc_id = str(row.get("Test Case ID", "")).strip()
+        exec_status = row.get("Execution Status", "")
+        if exec_status == "Passed":
+            status = "PASS"
+        elif "Fail" in exec_status or exec_status == "Error":
+            status = "FAIL"
+        else:
+            status = "SKIP"
+            
+        results_map[tc_id] = {
+            "status": status,
+            "actual_result": exec_status,
+            "executed_at": row.get("Execution Timestamp", ""),
+            "error_message": row.get("Remarks", "")
+        }
+    
     try:
-        df.to_excel(EXCEL_FILE, index=False)
+        ExcelHandler().update_results(Path(EXCEL_FILE), results_map)
         print(f"Success! Final data saved to {EXCEL_FILE}")
-    except PermissionError:
-        fallback_file = EXCEL_FILE.replace(".xlsx", "_results.xlsx")
-        print(f"Permission denied for {EXCEL_FILE} (it may be open). Saving to {fallback_file} instead.")
-        try:
-            df.to_excel(fallback_file, index=False)
-            print(f"Saved successfully to {fallback_file}")
-        except Exception as e2:
-            print(f"Failed to save fallback file: {e2}")
     except Exception as e:
-        print(f"Error saving updated file: {e}")
+        print(f"Error saving updated file with ExcelHandler: {e}")
         
     print("Agent Execution Finished.")
 

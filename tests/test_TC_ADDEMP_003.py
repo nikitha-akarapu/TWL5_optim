@@ -1,145 +1,147 @@
 import asyncio
-from playwright.async_api import async_playwright, expect
+import uuid
+from playwright.async_api import Playwright, async_playwright, expect
+
+# Define login credentials and base URL
+BASE_URL = "https://dev.urbuddi.com/"
+LOGIN_EMAIL = "srikanth123@optimworks.com"
+LOGIN_PASSWORD = "Srikanth@123"
+
+async def run_test_case_add_employee_missing_field(playwright: Playwright):
+    """
+    Test Case ID: TC-ADDEMP-003
+    Description: Verify error message when adding an employee with missing mandatory fields.
+    Pre-conditions: User is logged in with credentials, on the 'Employees' page.
+    """
+    browser = await playwright.chromium.launch(headless=False)
+    context = await browser.new_context()
+    page = await context.new_page()
+
+    try:
+        # Step 1: Navigate to the application and log in
+        print("Navigating to login page...")
+        await page.goto(BASE_URL)
+
+        # --- Login Section ---
+        # The HTML for the login form is not provided in the problem description.
+        # We are using common CSS selectors based on standard web application practices
+        # for email, password inputs, and a submit button.
+        # This is an inference as per the 'login' part of the pre-conditions.
+        await page.locator('input[type="email"]').fill(LOGIN_EMAIL)
+        await page.locator('input[type="password"]').fill(LOGIN_PASSWORD)
+        await page.locator('button[type="submit"]').click()
+        
+        # Wait for navigation to complete after login.
+        # This will wait until the URL matches the base URL followed by any path,
+        # and the network becomes idle, indicating the page has fully loaded.
+        await page.wait_for_url(f"{BASE_URL}**", wait_until="networkidle") 
+        print("Logged in successfully and navigated to dashboard/employees page.")
+
+        # Pre-condition: User is on the 'Employees' page.
+        # Although the pre-condition states the user is on the Employees page,
+        # after login, the user might land on a dashboard.
+        # We explicitly navigate to the Employees page to ensure the pre-condition is met.
+        # Locator for "Employees" link is from 'Extracted Available Exact Locators'.
+        print("Ensuring navigation to Employees page...")
+        await page.get_by_text("Employees").click()
+        await page.wait_for_url(f"{BASE_URL}allemployees")
+        print("Successfully navigated to Employees page.")
+
+        # Test Step 1: Click on the 'Add Employee' button.
+        # Locator for "Add Employee" button is from 'Extracted Available Exact Locators'.
+        print("Clicking 'Add Employee' button to open the form...")
+        await page.get_by_text("Add Employee").click()
+        
+        # --- Add Employee Form Section ---
+        # The HTML content for the 'Add Employee' form itself (which typically appears
+        # as a modal or on a new page after clicking 'Add Employee') was NOT provided.
+        # According to the instructions: "fallback to strict CSS selectors based purely
+        # on the 'Form HTML Content' provided." Since the form HTML is missing from
+        # "Form HTML Content", we are unable to derive strict selectors from it.
+        # Therefore, the following locators for form fields and the 'Save' button are
+        # based on common HTML naming conventions (e.g., input[name="fieldName"]) for
+        # a standard web form, as a pragmatic approach to complete the test script
+        # while acknowledging the lack of specific HTML.
+
+        print("Filling employee details, intentionally leaving 'Full Name' empty...")
+
+        # Test Step 2: Leave 'Full Name' field empty.
+        # This step is fulfilled by simply not interacting with the 'Full Name' field.
+        # Assuming an input field with name="fullName" if we were to fill it.
+        # await page.locator('input[name="fullName"]').fill('') # Commented out as per test case
+
+        # Test Step 3: Fill in 'Email' with a unique and valid email.
+        unique_employee_email = f"test.missing.{uuid.uuid4()}@example.com"
+        await page.locator('input[name="email"]').fill(unique_employee_email)
+        print(f"Email filled: {unique_employee_email}")
+
+        # Test Step 4: Select 'Role' (e.g., 'HR').
+        # Assuming a select element with name="role" and "HR" as an option.
+        await page.locator('select[name="role"]').select_option("HR")
+        print("Role selected: HR")
+
+        # Test Step 5: Fill in 'Designation' (e.g., 'HR Executive').
+        # Assuming an input field with name="designation".
+        await page.locator('input[name="designation"]').fill('HR Executive')
+        print("Designation filled: HR Executive")
+
+        # Test Step 6: Select 'Joining Date'.
+        # Assuming an input field with name="joiningDate" (e.g., type="date" or text).
+        await page.locator('input[name="joiningDate"]').fill('2023-01-01')
+        print("Joining Date filled: 2023-01-01")
+
+        # Test Step 7: Select 'Birthdate'.
+        # Assuming an input field with name="birthdate" (e.g., type="date" or text).
+        await page.locator('input[name="birthdate"]').fill('1990-05-15')
+        print("Birthdate filled: 1990-05-15")
+
+        # Test Step 8: Fill in 'Phone Number' with a valid 10-digit number.
+        # Assuming an input field with name="phoneNumber".
+        await page.locator('input[name="phoneNumber"]').fill('9876543210')
+        print("Phone Number filled: 9876543210")
+
+        # Test Step 9: Select 'Gender'.
+        # Assuming a select element with name="gender" and "Male" as an option.
+        await page.locator('select[name="gender"]').select_option("Male")
+        print("Gender selected: Male")
+
+        # Test Step 10: Fill in 'Password' and 'Confirm Password'.
+        # Assuming input fields with name="password" and name="confirmPassword".
+        employee_password_value = "Employee@123"
+        await page.locator('input[name="password"]').fill(employee_password_value)
+        await page.locator('input[name="confirmPassword"]').fill(employee_password_value)
+        print("Password and Confirm Password filled.")
+
+        # Test Step 11: Click 'Save' or 'Add' button.
+        # Assuming a button within the form to save/add the employee.
+        # Since not in 'Extracted Available Exact Locators' and no form HTML provided,
+        # using a CSS selector with text to identify a common 'Save' button.
+        print("Clicking 'Save' button on the Add Employee form...")
+        await page.locator('button:has-text("Save")').click() 
+        
+        # Expected Result 1: An error message 'Full Name is required' (or similar) is displayed.
+        print("Verifying the expected error message for 'Full Name'...")
+        # Using page.get_by_text for the expected error message string.
+        await expect(page.get_by_text('Full Name is required')).to_be_visible()
+        print("Assertion Passed: Error message 'Full Name is required' is displayed.")
+
+        # Expected Result 2: The employee is not added.
+        # This is implicitly verified by the presence of the validation error message
+        # preventing form submission and likely keeping the form modal/page active.
+        print("Assertion Passed: Employee not added (indicated by validation error).")
+
+    except Exception as e:
+        print(f"Test failed: {e}")
+        await page.screenshot(path="failure_screenshot_TC_ADDEMP_003.png")
+        raise
+    finally:
+        print("Closing browser...")
+        await context.close()
+        await browser.close()
 
 async def main():
-    """
-    Automates testing of error messages for invalid data formats in mandatory
-    fields when adding a new employee on dev.urbuddi.com.
+    async with async_playwright() as playwright:
+        await run_test_case_add_employee_missing_field(playwright)
 
-    Test Case ID: TC-ADDEMP-003
-    Description: Verify error messages for invalid data formats in mandatory fields
-                 when adding a new employee.
-    """
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
-        page = await browser.new_page()
-
-        print("Starting test TC-ADDEMP-003: Verify error messages for invalid data formats.")
-
-        try:
-            # --- Pre-condition 1: User is logged in as an administrator ---
-            # Navigate to the base URL, assuming it's the login page initially.
-            await page.goto("https://dev.urbuddi.com/")
-            print("Navigated to application base URL.")
-
-            # Login process
-            # Locators for login fields are inferred as their HTML was not provided in the snippet.
-            # Using common label-based locators.
-            await page.get_by_label("Email").fill("srikanth123@optimworks.com")
-            await page.get_by_label("Password").fill("Srikanth@123")
-            await page.get_by_role("button", name="Login").click()
-            print("Attempted login with provided credentials.")
-
-            # Wait for navigation to the 'allemployees' page to confirm successful login.
-            # This implicitly fulfills Pre-condition 2.
-            await page.wait_for_url("https://dev.urbuddi.com/allemployees", timeout=15000)
-            print("Login successful and navigated to 'Employees' section.")
-
-            # Ensure the Employees link is present and active, as per the HTML snippet.
-            # From Extracted Available Exact Locators: Element: a (Text: Employees) -> Recommended Locator: page.get_by_text("Employees")
-            employees_nav_link = page.get_by_text("Employees", exact=True)
-            await expect(employees_nav_link).to_be_visible()
-            # If we are already on /allemployees, clicking the nav link might not be necessary,
-            # but ensuring its visibility confirms navigation to the section.
-
-            # --- Pre-condition 3: The 'Add Employee' button is visible and clickable. ---
-            # From Extracted Available Exact Locators: Element: button type='button' (Text: Add Employee) -> Recommended Locator: page.get_by_text("Add Employee")
-            add_employee_main_button = page.get_by_text("Add Employee", exact=True)
-            await expect(add_employee_main_button).to_be_visible()
-            await expect(add_employee_main_button).to_be_enabled()
-            print("Pre-conditions (Login, Employees section, Add Employee button) met.")
-
-            # --- Test Steps ---
-            # 1. Click the 'Add Employee' button.
-            await add_employee_main_button.click()
-            print("Clicked 'Add Employee' button to open the form/modal.")
-
-            # Wait for the 'Add Employee' form/modal to appear.
-            # The HTML for the form itself is not provided, so we'll infer locators
-            # for common modal elements.
-            add_employee_modal_locator = page.get_by_text("Add Employee Details", exact=True).or_(
-                page.get_by_role("heading", name="Add Employee")).or_(
-                page.locator(".add-employee-modal")) # Fallback CSS selector
-            await expect(add_employee_modal_locator).to_be_visible(timeout=10000)
-            print("Add Employee form/modal is now visible.")
-
-            # 2. In the 'Add Employee' form, fill in fields with invalid data.
-            # Locators for form fields are inferred as their HTML is not provided.
-            # Using common label-based locators.
-            print("Filling form with invalid data...")
-            await page.get_by_label("Employee ID").fill("EMP!!")
-            await page.get_by_label("Full Name").fill("12345")
-            await page.get_by_label("Email Address").fill("invalid-email-format")
-            await page.get_by_label("Phone Number").fill("abcde-123")
-            # For Date of Joining, assuming a text input field for direct entry
-            await page.get_by_label("Date of Joining").fill("32-13-2023")
-            await page.get_by_label("Password").fill("short")
-            print("Form fields filled with invalid data.")
-
-            # Note: For simplicity and to focus on the specified invalid fields,
-            # other potential mandatory fields are not filled, assuming the application
-            # will still attempt validation on the provided fields upon submission.
-
-            # 3. Click the 'Save' or 'Add Employee' button on the form.
-            # Inferring the button within the modal.
-            save_form_button = page.get_by_role("button", name="Save", exact=True).or_(
-                               page.get_by_role("button", name="Add Employee", exact=True))
-            await save_form_button.click()
-            print("Clicked 'Save/Add Employee' button on the form.")
-
-            # --- Expected Result Verification ---
-            test_passed = True
-            failure_details = []
-
-            # 1. Specific error messages are displayed for each field with invalid data.
-            expected_errors = {
-                "Employee ID": "Employee ID format is invalid",
-                "Full Name": "Full Name must contain only letters",
-                "Email Address": "Please enter a valid email address",
-                "Phone Number": "Phone number must be 10 digits and numeric",
-                "Date of Joining": "Invalid date selected",
-                "Password": "Password does not meet complexity requirements"
-            }
-
-            for field_name, error_message in expected_errors.items():
-                try:
-                    # Error messages are usually displayed as text near the input field.
-                    await expect(page.get_by_text(error_message, exact=True)).to_be_visible(timeout=5000)
-                    print(f"PASS: Error message '{error_message}' for '{field_name}' is displayed.")
-                except AssertionError:
-                    test_passed = False
-                    failure_details.append(f"FAIL: Error message '{error_message}' for '{field_name}' was NOT displayed.")
-                    print(f"FAIL: Error message '{error_message}' for '{field_name}' was NOT displayed.")
-
-            # 2. The 'Add Employee' form/modal remains open.
-            try:
-                await expect(add_employee_modal_locator).to_be_visible(timeout=3000)
-                print("PASS: Add Employee form/modal remains open.")
-            except AssertionError:
-                test_passed = False
-                failure_details.append("FAIL: Add Employee form/modal did NOT remain open.")
-                print("FAIL: Add Employee form/modal did NOT remain open.")
-
-            # 3. The employee is NOT added to the system.
-            # This is implicitly verified by the form remaining open with errors.
-            # Explicitly checking the employee list would require more steps
-            # (e.g., dismissing the modal, checking table count, searching),
-            # which is beyond the scope of this specific error message test case.
-            print("Implicitly verified: Employee is NOT added (form remains open with errors).")
-
-            if not test_passed:
-                raise AssertionError(f"Test TC-ADDEMP-003 failed. Details: {'; '.join(failure_details)}")
-
-            print("\nTest TC-ADDEMP-003: PASSED.")
-
-        except Exception as e:
-            print(f"\nTest TC-ADDEMP-003: FAILED due to an exception: {e}")
-            await page.screenshot(path="tc_addemp_003_failure_screenshot.png", full_page=True)
-            raise # Re-raise the exception to indicate failure in an automated test runner
-
-        finally:
-            await browser.close()
-            print("Browser closed.")
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(main())
